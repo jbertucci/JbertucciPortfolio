@@ -1,0 +1,180 @@
+---
+title: "Project_Code_IST_707"
+author: "Antonio Llorens"
+date: "5/10/2019"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r}
+####### Twitter in R
+
+
+consumerKey='hJR1dDS8fwO3A7j56e2D55n09'
+consumerSecret='txiFQeZmZ5LJibJoWBvNClhMzy3LP9vIfXYx3PSUhjtLY6D9wq'
+access_Token='1095352742-awDgJ03Kb3YpTueVuGO3U3g75T8kAOaoi9UvZCV'
+access_Secret='y4fd2vqRvF3fd4hwAdk9HD1CAn0Zf62ayWZTyj1YNrQNt'
+
+#filename="TwitterConKey_ConSec_AccTok_AccSec.txt"
+#(tokens<-read.csv(filename, header=TRUE, sep=","))
+
+
+#(consumerKey=as.character(tokens$consumerKey))
+#consumerSecret=as.character(tokens$consumerSecret)
+#access_Token=as.character(tokens$access_Token)
+#access_Secret=as.character(tokens$access_Secret)
+
+
+requestURL='https://api.twitter.com/oauth/request_token'
+accessURL='https://api.twitter.com/oauth/access_token'
+authURL='https://api.twitter.com/oauth/authorize'
+
+### NOTES: rtweet is another excellent option
+## https://mkearney.github.io/blog/2017/06/01/intro-to-rtweet/
+### https://rtweet.info/
+
+### Install the needed packages...
+#install.packages("twitteR")
+#install.packages("ROAuth")
+# install.packages("rtweet")
+library(arules)
+library(rtweet)
+library(twitteR)
+library(ROAuth)
+library(jsonlite)
+#install.packages("streamR")
+#library(streamR)
+#install.packages("rjson")
+library(rjson)
+#install.packages("tokenizers")
+library(tokenizers)
+library(tidyverse)
+library(plyr)
+library(dplyr)
+library(ggplot2)
+#install.packages("syuzhet")  ## sentiment analysis
+library(syuzhet)
+library(stringr)
+#install.packages("arulesViz")
+library(arulesViz)
+
+##############  Using twittR 
+setup_twitter_oauth(consumerKey,consumerSecret,access_Token,access_Secret)
+
+Search<-twitteR::searchTwitter("#amazonprime",n=100,since="2018-01-01")
+(Search_DF <- twListToDF(Search))
+TransactionTweetsFile = "amazonprime.csv"
+(Search_DF$text[1])
+
+
+## Start the file
+Trans <- file(TransactionTweetsFile)
+## Tokenize to words 
+Tokens<-tokenizers::tokenize_words(Search_DF$text[1],stopwords = stopwords::stopwords("en"), 
+                                   lowercase = TRUE,  strip_punct = TRUE, strip_numeric = TRUE,simplify = TRUE)
+## Write squished tokens
+cat(unlist(str_squish(Tokens)), "\n", file=Trans, sep=",")
+close(Trans)
+
+## Append remaining lists of tokens into file
+## Recall - a list of tokens is the set of words from a Tweet
+Trans <- file(TransactionTweetsFile, open = "a")
+for(i in 2:nrow(Search_DF)){
+  Tokens<-tokenize_words(Search_DF$text[i],stopwords = stopwords::stopwords("en"), 
+                         lowercase = TRUE,  strip_punct = TRUE, simplify = TRUE)
+  cat(unlist(str_squish(Tokens)), "\n", file=Trans, sep=",")
+}
+close(Trans)
+
+
+######### Read in the tweet transactions
+TweetTrans <- read.transactions(TransactionTweetsFile,
+                                rm.duplicates = FALSE, 
+                                format = "basket",
+                                sep=","
+                                ## cols = 
+)
+inspect(TweetTrans)
+## See the words that occur the most
+Sample_Trans <- sample(TweetTrans, 50)
+summary(Sample_Trans)
+
+## Read the transactions data into a dataframe
+TweetDF <- read.csv(TransactionTweetsFile, header = FALSE, sep = ",")
+head(TweetDF)
+(str(TweetDF))
+
+## Convert all columns to char 
+TweetDF<-TweetDF %>%
+  mutate_all(as.character)
+(str(TweetDF))
+# We can now remove certain words
+TweetDF[TweetDF == "t.co"] <- ""
+TweetDF[TweetDF == "rt"] <- ""
+TweetDF[TweetDF == "http"] <- ""
+TweetDF[TweetDF == "https"] <- ""
+
+## Clean with grepl - every row in each column
+MyDF<-NULL
+for (i in 1:ncol(TweetDF)){
+  MyList=c() # each list is a column of logicals ...
+  MyList=c(MyList,grepl("[[:digit:]]", TweetDF[[i]]))
+  MyDF<-cbind(MyDF,MyList)  ## create a logical DF
+  ## TRUE is when a cell has a word that contains digits
+}
+## For all TRUE, replace with blank
+TweetDF[MyDF] <- ""
+(head(TweetDF,10))
+
+## does not work## TweetDF[grepl("\\d", TweetDF[[1]])] <- ""
+## does not work ## (grepl("[[:digit:]]", TweetDF[[i]]))
+#does not work ## TweetDF[grepl("[0-9]+",TweetDF)] <- ""
+#(TweetDF)
+#grepl("[0-9]+",TweetDF)
+#gsub('[[:digit:]]+', '', x)
+
+
+# Now we save the dataframe using the write table command 
+write.table(TweetDF, file = "updatedamazonprime.csv", col.names = FALSE, 
+            row.names = FALSE, sep = ",")
+TweetTrans <- read.transactions("updatedamazonprime.csv", sep =",", 
+                                format("basket"),  rm.duplicates = TRUE)
+inspect(TweetTrans)
+
+
+
+
+
+
+
+
+
+```
+
+```{r}
+
+##Association Rule Moning
+TweetTrans_rules = arules::apriori(TweetTrans, 
+                                   parameter = list(support=.001, confidence=.001, minlen=2))
+inspect(TweetTrans_rules[1:10])
+## sorted
+SortedRules_conf <- sort(TweetTrans_rules, by="confidence", decreasing=TRUE)
+inspect(SortedRules_conf[1:20])
+
+SortedRules_sup <- sort(TweetTrans_rules, by="support", decreasing=TRUE)
+inspect(SortedRules_sup[1:20])
+
+
+plot (SortedRules_sup[1:50],method="graph",interactive=TRUE,shading="confidence") 
+plot (SortedRules_conf[1:50],method="graph",interactive=TRUE,shading="confidence") 
+
+# feel free to expand and move around the objects in this plot
+
+#plot (SortedRules_conf[1:15], measure=c("support", "lift"), shading="confidence")
+```
+
